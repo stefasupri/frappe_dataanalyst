@@ -1,11 +1,11 @@
-// POS Predictions Dashboard - Vanilla JavaScript
+// POS Predictions Dashboard - Vanilla JavaScript with Charts
 
 (function() {
     'use strict';
 
     let predictions = null;
+    let chartInstances = {};
 
-    // Initialize
     document.addEventListener('DOMContentLoaded', function() {
         initForm();
     });
@@ -17,7 +17,6 @@
 
     function handleSubmit(e) {
         e.preventDefault();
-        
         const formData = new FormData(e.target);
         const company = formData.get('company');
         
@@ -40,10 +39,7 @@
         hideError();
         clearResults();
 
-        // Prepare request
         const url = '/api/method/data_analyst.api.pos.get_pos_predictions';
-        
-        // Build query params
         const queryParams = new URLSearchParams();
         queryParams.append('company', params.company);
         
@@ -58,7 +54,6 @@
         if (params.date_to) queryParams.append('date_to', params.date_to);
         queryParams.append('prediction_days', params.prediction_days);
 
-        // Fetch data
         fetch(`${url}?${queryParams.toString()}`, {
             method: 'GET',
             headers: {
@@ -67,9 +62,7 @@
             }
         })
         .then(response => {
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
+            if (!response.ok) throw new Error('Network response was not ok');
             return response.json();
         })
         .then(data => {
@@ -91,43 +84,293 @@
     function renderResults() {
         if (!predictions) return;
 
-        let html = '';
+        Object.keys(chartInstances).forEach(key => {
+            if (chartInstances[key]) chartInstances[key].destroy();
+        });
+        chartInstances = {};
 
-        // Info Header
-        html += renderInfoHeader();
+        let html = renderInfoHeader();
 
-        // Sales Prediction
         if (predictions.sales_prediction?.status === 'success') {
             html += renderSalesPrediction();
         }
-
-        // Product Demand
         if (predictions.product_demand_prediction?.status === 'success') {
             html += renderProductDemand();
         }
-
-        // Profit Prediction
         if (predictions.profit_prediction?.status === 'success') {
             html += renderProfitPrediction();
         }
-
-        // Customer Prediction
         if (predictions.active_customer_prediction?.status === 'success') {
             html += renderCustomerPrediction();
         }
-
-        // Bestseller Prediction
         if (predictions.bestseller_prediction?.status === 'success') {
             html += renderBestsellerPrediction();
         }
-
-        // Stock Prediction
         if (predictions.stock_prediction?.status === 'success') {
             html += renderStockPrediction();
         }
 
         document.getElementById('results-container').innerHTML = html;
         bindCollapseEvents();
+        setTimeout(() => renderCharts(), 100);
+    }
+
+    function renderCharts() {
+        if (predictions.sales_prediction?.status === 'success') renderSalesChart();
+        if (predictions.product_demand_prediction?.status === 'success') renderProductDemandChart();
+        if (predictions.profit_prediction?.status === 'success') renderProfitChart();
+        if (predictions.active_customer_prediction?.status === 'success') renderCustomerChart();
+        if (predictions.bestseller_prediction?.status === 'success') renderBestsellerChart();
+        if (predictions.stock_prediction?.status === 'success') renderStockChart();
+    }
+
+    function renderSalesChart() {
+        const canvas = document.getElementById('salesChart');
+        if (!canvas) return;
+
+        const sp = predictions.sales_prediction;
+        const predictionDays = parseInt(predictions.prediction_period.split(' ')[0]);
+        const labels = [], actualData = [], predictedData = [];
+        
+        for (let i = -30; i < predictionDays; i++) {
+            if (i < 0) {
+                labels.push(`Day ${i}`);
+                actualData.push(sp.current_avg_daily_sales);
+                predictedData.push(null);
+            } else {
+                labels.push(`Day +${i}`);
+                actualData.push(null);
+                predictedData.push(sp.predicted_daily_sales);
+            }
+        }
+
+        chartInstances.sales = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Actual Sales',
+                    data: actualData,
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4,
+                    fill: true
+                }, {
+                    label: 'Predicted Sales',
+                    data: predictedData,
+                    borderColor: '#27ae60',
+                    backgroundColor: 'rgba(39, 174, 96, 0.1)',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    tension: 0.4,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.dataset.label + ': Rp ' + (context.parsed.y || 0).toLocaleString('id-ID');
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return 'Rp ' + value.toLocaleString('id-ID');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderProductDemandChart() {
+        const canvas = document.getElementById('productDemandChart');
+        if (!canvas) return;
+
+        const pd = predictions.product_demand_prediction;
+        const topProducts = pd.top_products.slice(0, 10);
+        const labels = topProducts.map(p => p.item_name.length > 20 ? p.item_name.substring(0, 20) + '...' : p.item_name);
+        const actualData = topProducts.map(p => p.daily_average_demand);
+        const predictedData = topProducts.map(p => p.predicted_demand);
+
+        chartInstances.productDemand = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Daily Average',
+                    data: actualData,
+                    backgroundColor: 'rgba(52, 152, 219, 0.7)',
+                    borderColor: '#3498db',
+                    borderWidth: 1
+                }, {
+                    label: 'Predicted Demand',
+                    data: predictedData,
+                    backgroundColor: 'rgba(39, 174, 96, 0.7)',
+                    borderColor: '#27ae60',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: true, position: 'top' } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    function renderProfitChart() {
+        const canvas = document.getElementById('profitChart');
+        if (!canvas) return;
+
+        const pp = predictions.profit_prediction;
+        chartInstances.profit = new Chart(canvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['Profit', 'Cost'],
+                datasets: [{
+                    data: [pp.current_total_profit, pp.current_total_cost],
+                    backgroundColor: ['rgba(39, 174, 96, 0.8)', 'rgba(231, 76, 60, 0.8)'],
+                    borderColor: ['#27ae60', '#e74c3c'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return context.label + ': Rp ' + context.parsed.toLocaleString('id-ID');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderCustomerChart() {
+        const canvas = document.getElementById('customerChart');
+        if (!canvas) return;
+
+        const cp = predictions.active_customer_prediction;
+        chartInstances.customer = new Chart(canvas, {
+            type: 'pie',
+            data: {
+                labels: ['Loyal Customers', 'Regular Customers'],
+                datasets: [{
+                    data: [cp.loyal_customers, cp.current_total_customers - cp.loyal_customers],
+                    backgroundColor: ['rgba(39, 174, 96, 0.8)', 'rgba(52, 152, 219, 0.8)'],
+                    borderColor: ['#27ae60', '#3498db'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: true, position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const percentage = ((context.parsed / cp.current_total_customers) * 100).toFixed(1);
+                                return context.label + ': ' + context.parsed + ' (' + percentage + '%)';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderBestsellerChart() {
+        const canvas = document.getElementById('bestsellerChart');
+        if (!canvas) return;
+
+        const bp = predictions.bestseller_prediction;
+        const topItems = bp.top_bestsellers.slice(0, 10);
+        const labels = topItems.map(item => item.item_name.length > 15 ? item.item_name.substring(0, 15) + '...' : item.item_name);
+        const data = topItems.map(item => item.popularity_score);
+        
+        chartInstances.bestseller = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Popularity Score',
+                    data: data,
+                    backgroundColor: 'rgba(253, 126, 20, 0.7)',
+                    borderColor: '#fd7e14',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: { x: { beginAtZero: true } }
+            }
+        });
+    }
+
+    function renderStockChart() {
+        const canvas = document.getElementById('stockChart');
+        if (!canvas) return;
+
+        const sp = predictions.stock_prediction;
+        const allItems = [...(sp.critical_items || []), ...(sp.low_stock_items || [])].slice(0, 10);
+        const labels = allItems.map(item => item.item_name.length > 15 ? item.item_name.substring(0, 15) + '...' : item.item_name);
+        const currentStock = allItems.map(item => item.current_stock);
+        const predictedUse = allItems.map(item => item.predicted_consumption);
+        const reorderQty = allItems.map(item => item.reorder_quantity);
+        
+        chartInstances.stock = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Current Stock',
+                    data: currentStock,
+                    backgroundColor: 'rgba(52, 152, 219, 0.7)',
+                    borderColor: '#3498db',
+                    borderWidth: 1
+                }, {
+                    label: 'Predicted Use',
+                    data: predictedUse,
+                    backgroundColor: 'rgba(243, 156, 18, 0.7)',
+                    borderColor: '#f39c12',
+                    borderWidth: 1
+                }, {
+                    label: 'Reorder Quantity',
+                    data: reorderQty,
+                    backgroundColor: 'rgba(231, 76, 60, 0.7)',
+                    borderColor: '#e74c3c',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: true, position: 'top' } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
     }
 
     function renderInfoHeader() {
@@ -136,22 +379,10 @@
             <div class="info-header">
                 <h3>Prediction Summary</h3>
                 <div class="info-grid">
-                    <div class="info-item">
-                        <label>Company</label>
-                        <value>${p.company}</value>
-                    </div>
-                    <div class="info-item">
-                        <label>POS Profiles</label>
-                        <value>${p.pos_profiles.length} profiles</value>
-                    </div>
-                    <div class="info-item">
-                        <label>Date Range</label>
-                        <value>${p.date_range.from} ~ ${p.date_range.to}</value>
-                    </div>
-                    <div class="info-item">
-                        <label>Prediction Period</label>
-                        <value>${p.prediction_period}</value>
-                    </div>
+                    <div class="info-item"><label>Company</label><value>${p.company}</value></div>
+                    <div class="info-item"><label>POS Profiles</label><value>${p.pos_profiles.length} profiles</value></div>
+                    <div class="info-item"><label>Date Range</label><value>${p.date_range.from} ~ ${p.date_range.to}</value></div>
+                    <div class="info-item"><label>Prediction Period</label><value>${p.prediction_period}</value></div>
                 </div>
             </div>
         `;
@@ -162,9 +393,7 @@
         return `
             <div class="prediction-card">
                 <div class="prediction-header" onclick="toggleSection('sales')">
-                    <div class="prediction-icon" style="background: #d4edda; color: #27ae60;">
-                        📈
-                    </div>
+                    <div class="prediction-icon" style="background: #d4edda; color: #27ae60;">📈</div>
                     <div class="prediction-title">
                         <h3>Sales Prediction</h3>
                         <p>Prediksi penjualan berdasarkan trend historis</p>
@@ -172,6 +401,7 @@
                     <span class="chevron" id="chevron-sales">▶</span>
                 </div>
                 <div class="prediction-content" id="content-sales">
+                    <div class="chart-container"><canvas id="salesChart"></canvas></div>
                     <div class="metrics-grid">
                         <div class="metric-box info">
                             <div class="metric-label">Current Avg Daily Sales</div>
@@ -206,14 +436,9 @@
         pd.top_products.forEach(item => {
             rows += `
                 <tr>
-                    <td>
-                        <strong>${item.item_name}</strong><br>
-                        <small style="color: #7f8c8d;">${item.item_code}</small>
-                    </td>
+                    <td><strong>${item.item_name}</strong><br><small style="color: #7f8c8d;">${item.item_code}</small></td>
                     <td style="text-align: right;">${formatNumber(item.daily_average_demand)}</td>
-                    <td style="text-align: right;">
-                        <span class="badge badge-info">${formatNumber(item.predicted_demand)}</span>
-                    </td>
+                    <td style="text-align: right;"><span class="badge badge-info">${formatNumber(item.predicted_demand)}</span></td>
                     <td style="text-align: right;">${item.transaction_frequency}x</td>
                 </tr>
             `;
@@ -222,9 +447,7 @@
         return `
             <div class="prediction-card">
                 <div class="prediction-header" onclick="toggleSection('products')">
-                    <div class="prediction-icon" style="background: #d1ecf1; color: #0c5460;">
-                        📦
-                    </div>
+                    <div class="prediction-icon" style="background: #d1ecf1; color: #0c5460;">📦</div>
                     <div class="prediction-title">
                         <h3>Product Demand Prediction</h3>
                         <p>Top ${pd.top_products.length} produk dengan prediksi demand tertinggi</p>
@@ -232,15 +455,9 @@
                     <span class="chevron" id="chevron-products">▶</span>
                 </div>
                 <div class="prediction-content" id="content-products">
+                    <div class="chart-container"><canvas id="productDemandChart"></canvas></div>
                     <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th style="text-align: right;">Daily Avg</th>
-                                <th style="text-align: right;">Predicted Demand</th>
-                                <th style="text-align: right;">Frequency</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Item</th><th style="text-align: right;">Daily Avg</th><th style="text-align: right;">Predicted Demand</th><th style="text-align: right;">Frequency</th></tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
                 </div>
@@ -253,9 +470,7 @@
         return `
             <div class="prediction-card">
                 <div class="prediction-header" onclick="toggleSection('profit')">
-                    <div class="prediction-icon" style="background: #fff3cd; color: #856404;">
-                        💰
-                    </div>
+                    <div class="prediction-icon" style="background: #fff3cd; color: #856404;">💰</div>
                     <div class="prediction-title">
                         <h3>Profit Prediction</h3>
                         <p>Prediksi keuntungan dan margin</p>
@@ -263,6 +478,7 @@
                     <span class="chevron" id="chevron-profit">▶</span>
                 </div>
                 <div class="prediction-content" id="content-profit">
+                    <div class="chart-container"><canvas id="profitChart"></canvas></div>
                     <div class="metrics-grid">
                         <div class="metric-box success">
                             <div class="metric-label">Current Total Profit</div>
@@ -283,9 +499,7 @@
                             <div class="metric-value">${formatCurrency(pp.current_total_cost)}</div>
                         </div>
                     </div>
-                    <div class="note-box">
-                        <strong>Note:</strong> ${pp.note}
-                    </div>
+                    <div class="note-box"><strong>Note:</strong> ${pp.note}</div>
                 </div>
             </div>
         `;
@@ -301,9 +515,7 @@
                     <td>${cust.customer_name}</td>
                     <td style="text-align: right;">${cust.transaction_count}x</td>
                     <td style="text-align: right;"><strong>${formatCurrency(cust.total_spent)}</strong></td>
-                    <td style="text-align: center;">
-                        <span class="badge ${badgeClass}">${cust.customer_type}</span>
-                    </td>
+                    <td style="text-align: center;"><span class="badge ${badgeClass}">${cust.customer_type}</span></td>
                 </tr>
             `;
         });
@@ -311,9 +523,7 @@
         return `
             <div class="prediction-card">
                 <div class="prediction-header" onclick="toggleSection('customers')">
-                    <div class="prediction-icon" style="background: #e2d5f1; color: #6f42c1;">
-                        👥
-                    </div>
+                    <div class="prediction-icon" style="background: #e2d5f1; color: #6f42c1;">👥</div>
                     <div class="prediction-title">
                         <h3>Active Customer Prediction</h3>
                         <p>Analisis pelanggan dan retention</p>
@@ -321,6 +531,7 @@
                     <span class="chevron" id="chevron-customers">▶</span>
                 </div>
                 <div class="prediction-content" id="content-customers">
+                    <div class="chart-container"><canvas id="customerChart"></canvas></div>
                     <div class="metrics-grid">
                         <div class="metric-box">
                             <div class="metric-label">Total Customers</div>
@@ -341,14 +552,7 @@
                     </div>
                     <h4 style="margin-top: 20px; margin-bottom: 10px; font-size: 14px; font-weight: 600;">Top Customers</h4>
                     <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>Customer</th>
-                                <th style="text-align: right;">Transactions</th>
-                                <th style="text-align: right;">Total Spent</th>
-                                <th style="text-align: center;">Type</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Customer</th><th style="text-align: right;">Transactions</th><th style="text-align: right;">Total Spent</th><th style="text-align: center;">Type</th></tr></thead>
                         <tbody>${customerRows}</tbody>
                     </table>
                 </div>
@@ -378,9 +582,7 @@
         return `
             <div class="prediction-card">
                 <div class="prediction-header" onclick="toggleSection('bestsellers')">
-                    <div class="prediction-icon" style="background: #ffe5d9; color: #fd7e14;">
-                        🛒
-                    </div>
+                    <div class="prediction-icon" style="background: #ffe5d9; color: #fd7e14;">🛒</div>
                     <div class="prediction-title">
                         <h3>Bestseller Prediction</h3>
                         <p>Produk terlaris dan popularity score</p>
@@ -388,6 +590,7 @@
                     <span class="chevron" id="chevron-bestsellers">▶</span>
                 </div>
                 <div class="prediction-content" id="content-bestsellers">
+                    <div class="chart-container"><canvas id="bestsellerChart"></canvas></div>
                     ${bestsellerHtml}
                 </div>
             </div>
@@ -396,7 +599,6 @@
 
     function renderStockPrediction() {
         const sp = predictions.stock_prediction;
-        
         let criticalHtml = '';
         if (sp.critical_items && sp.critical_items.length > 0) {
             criticalHtml = '<h4 style="color: #e74c3c; margin-bottom: 12px; font-size: 14px; font-weight: 600;">⚠️ Critical Stock Items</h4>';
@@ -408,22 +610,10 @@
                             <span style="font-size: 12px;">⚠️ ${item.days_until_stockout} days until stockout</span>
                         </div>
                         <div class="stock-alert-grid">
-                            <div class="stock-alert-item">
-                                <label>Current</label>
-                                <value>${formatNumber(item.current_stock)}</value>
-                            </div>
-                            <div class="stock-alert-item">
-                                <label>Predicted Use</label>
-                                <value>${formatNumber(item.predicted_consumption)}</value>
-                            </div>
-                            <div class="stock-alert-item">
-                                <label>Reorder</label>
-                                <value style="color: #e74c3c;">${formatNumber(item.reorder_quantity)}</value>
-                            </div>
-                            <div class="stock-alert-item">
-                                <label>Status</label>
-                                <value><span class="badge badge-danger">${item.stock_status}</span></value>
-                            </div>
+                            <div class="stock-alert-item"><label>Current</label><value>${formatNumber(item.current_stock)}</value></div>
+                            <div class="stock-alert-item"><label>Predicted Use</label><value>${formatNumber(item.predicted_consumption)}</value></div>
+                            <div class="stock-alert-item"><label>Reorder</label><value style="color: #e74c3c;">${formatNumber(item.reorder_quantity)}</value></div>
+                            <div class="stock-alert-item"><label>Status</label><value><span class="badge badge-danger">${item.stock_status}</span></value></div>
                         </div>
                     </div>
                 `;
@@ -441,22 +631,10 @@
                             <span style="font-size: 12px;">${item.days_until_stockout} days remaining</span>
                         </div>
                         <div class="stock-alert-grid">
-                            <div class="stock-alert-item">
-                                <label>Current</label>
-                                <value>${formatNumber(item.current_stock)}</value>
-                            </div>
-                            <div class="stock-alert-item">
-                                <label>Predicted Use</label>
-                                <value>${formatNumber(item.predicted_consumption)}</value>
-                            </div>
-                            <div class="stock-alert-item">
-                                <label>Reorder</label>
-                                <value style="color: #f39c12;">${formatNumber(item.reorder_quantity)}</value>
-                            </div>
-                            <div class="stock-alert-item">
-                                <label>Status</label>
-                                <value><span class="badge badge-warning">${item.stock_status}</span></value>
-                            </div>
+                            <div class="stock-alert-item"><label>Current</label><value>${formatNumber(item.current_stock)}</value></div>
+                            <div class="stock-alert-item"><label>Predicted Use</label><value>${formatNumber(item.predicted_consumption)}</value></div>
+                            <div class="stock-alert-item"><label>Reorder</label><value style="color: #f39c12;">${formatNumber(item.reorder_quantity)}</value></div>
+                            <div class="stock-alert-item"><label>Status</label><value><span class="badge badge-warning">${item.stock_status}</span></value></div>
                         </div>
                     </div>
                 `;
@@ -466,9 +644,7 @@
         return `
             <div class="prediction-card">
                 <div class="prediction-header" onclick="toggleSection('stock')">
-                    <div class="prediction-icon" style="background: #f8d7da; color: #e74c3c;">
-                        ⚠️
-                    </div>
+                    <div class="prediction-icon" style="background: #f8d7da; color: #e74c3c;">⚠️</div>
                     <div class="prediction-title">
                         <h3>Stock Prediction</h3>
                         <p>${sp.summary.critical_stock_count} critical, ${sp.summary.low_stock_count} low stock items</p>
@@ -476,23 +652,15 @@
                     <span class="chevron" id="chevron-stock">▶</span>
                 </div>
                 <div class="prediction-content" id="content-stock">
+                    <div class="chart-container"><canvas id="stockChart"></canvas></div>
                     ${criticalHtml}
                     ${lowHtml}
                     <div class="summary-box">
                         <div class="summary-title">Stock Summary</div>
                         <div class="summary-grid">
-                            <div class="summary-item">
-                                <label>Total Items</label>
-                                <value style="color: #2c3e50;">${sp.summary.total_items_analyzed}</value>
-                            </div>
-                            <div class="summary-item">
-                                <label>Critical</label>
-                                <value style="color: #e74c3c;">${sp.summary.critical_stock_count}</value>
-                            </div>
-                            <div class="summary-item">
-                                <label>Low Stock</label>
-                                <value style="color: #f39c12;">${sp.summary.low_stock_count}</value>
-                            </div>
+                            <div class="summary-item"><label>Total Items</label><value style="color: #2c3e50;">${sp.summary.total_items_analyzed}</value></div>
+                            <div class="summary-item"><label>Critical</label><value style="color: #e74c3c;">${sp.summary.critical_stock_count}</value></div>
+                            <div class="summary-item"><label>Low Stock</label><value style="color: #f39c12;">${sp.summary.low_stock_count}</value></div>
                         </div>
                     </div>
                 </div>
@@ -500,7 +668,6 @@
         `;
     }
 
-    // Utility Functions
     function toggleSection(section) {
         const content = document.getElementById('content-' + section);
         const chevron = document.getElementById('chevron-' + section);
@@ -515,7 +682,6 @@
     }
 
     function bindCollapseEvents() {
-        // Auto-expand all sections on first load
         const sections = ['sales', 'products', 'profit', 'customers', 'bestsellers', 'stock'];
         sections.forEach(section => {
             const content = document.getElementById('content-' + section);
@@ -583,6 +749,5 @@
         return '';
     }
 
-    // Make toggleSection global for onclick
     window.toggleSection = toggleSection;
 })();
