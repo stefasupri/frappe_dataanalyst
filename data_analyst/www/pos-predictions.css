@@ -66,12 +66,16 @@ body {
     color: #e74c3c;
 }
 
-.form-group input {
+/* Style untuk input tanggal & angka */
+.form-group input[type="text"],
+.form-group input[type="date"],
+.form-group input[type="number"] {
     padding: 10px 12px;
     border: 1px solid #dcdde1;
     border-radius: 8px;
     font-size: 14px;
     transition: all 0.3s ease;
+    height: 38px; /* Menyamakan tinggi */
 }
 
 .form-group input:focus {
@@ -97,6 +101,10 @@ body {
     transition: all 0.3s ease;
     width: 100%;
     margin-top: 22px;
+    height: 38px; /* Menyamakan tinggi */
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .btn-primary {
@@ -114,6 +122,122 @@ body {
     cursor: not-allowed;
     transform: none;
 }
+
+/* === CSS UNTUK CUSTOM SELECT (BARU) === */
+.custom-select-container {
+    position: relative;
+    user-select: none;
+}
+
+.custom-select-btn {
+    padding: 10px 12px;
+    border: 1px solid #dcdde1;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 38px; /* Menyamakan tinggi */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.custom-select-btn span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.custom-select-btn.disabled {
+    background-color: #f8f9fa;
+    cursor: not-allowed;
+    color: #7f8c8d;
+}
+
+.custom-select-btn .chevron {
+    font-size: 10px;
+    transition: transform 0.2s ease;
+}
+
+.custom-select-dropdown {
+    position: absolute;
+    top: 105%;
+    left: 0;
+    right: 0;
+    background: white;
+    border: 1px solid #dcdde1;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    z-index: 100;
+    max-height: 250px;
+    display: none;
+    flex-direction: column;
+}
+
+.select-search-input {
+    width: calc(100% - 20px);
+    margin: 10px 10px 5px 10px;
+    padding: 8px 10px;
+    border: 1px solid #dcdde1;
+    border-radius: 6px;
+    font-size: 14px;
+}
+.select-search-input:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.select-options-list {
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+/* Style untuk item di dropdown Company (single select) */
+.select-option-item {
+    padding: 10px 12px;
+    cursor: pointer;
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.select-option-item:hover, .select-option-item.selected {
+    background-color: #f0f5fa;
+    color: #3498db;
+    font-weight: 500;
+}
+
+/* Style untuk item di dropdown POS Profile (multi select) */
+.multiselect-item {
+    padding: 10px 12px;
+    display: flex; 
+    align-items: center; 
+    cursor: pointer;
+    border-bottom: 1px solid #f0f0f0;
+}
+.multiselect-item:last-child {
+    border-bottom: none;
+}
+.multiselect-item:hover {
+    background-color: #f8f9fa;
+}
+.multiselect-item input[type="checkbox"] {
+    margin-right: 10px;
+    height: 14px; 
+    width: 14px;
+}
+.multiselect-item label {
+    margin-bottom: 0 !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    color: #2c3e50 !important;
+    flex: 1; 
+    pointer-events: none; 
+}
+/* ------------------------------------- */
+
 
 /* Loading */
 .loading {
@@ -179,7 +303,7 @@ body {
     display: block;
 }
 
-/* Prediction Card */
+/* Prediction Card (Container untuk tiap tab) */
 .prediction-card {
     background: white;
     border-radius: 16px;
@@ -194,13 +318,14 @@ body {
     align-items: center;
     gap: 16px;
     padding: 20px 24px;
-    cursor: pointer;
+    /* cursor: pointer; -> DIHAPUS, header tidak bisa diklik lagi */
+    border-bottom: 1px solid #f0f0f0; /* Ditambahkan agar rapi */
     transition: background 0.3s ease;
 }
 
-.prediction-header:hover {
+/* .prediction-header:hover { -> Tidak perlu lagi
     background: #f8f9fa;
-}
+} */
 
 .prediction-icon {
     width: 48px;
@@ -229,26 +354,34 @@ body {
     margin: 0;
 }
 
-.chevron {
+/* .chevron { -> Tidak perlu lagi
     font-size: 20px;
     color: #7f8c8d;
     transition: transform 0.3s ease;
 }
 
-.chevron.rotated {
+.chevron.rotated { -> Tidak perlu lagi
     transform: rotate(90deg);
-}
+} */
 
 .prediction-content {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.3s ease;
-    padding: 0 24px;
+    /* max-height: 0; -> DIHAPUS */
+    /* overflow: hidden; -> DIHAPUS */
+    /* transition: max-height 0.3s ease; -> DIHAPUS */
+    padding: 0 24px 24px; /* Disederhanakan */
 }
 
 .prediction-content.expanded {
-    max-height: 5000px;
+    /* max-height: 5000px; -> DIHAPUS */
     padding: 0 24px 24px;
+}
+
+/* Chart Container (BARU) */
+.chart-container {
+    height: 300px;
+    position: relative;
+    margin-bottom: 20px;
+    margin-top: 20px; /* Jarak dari header */
 }
 
 /* Metrics Grid */
@@ -257,6 +390,7 @@ body {
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 16px;
     margin-bottom: 16px;
+    /* margin-top: 20px; -> Dihapus, diatur oleh chart-container */
 }
 
 .metric-box {
@@ -510,4 +644,74 @@ body {
 .chart-grid canvas {
     width: 100%;
     height: 250px;
+}
+
+/* Results Navigation */
+.results-nav {
+    background: white;
+    border-radius: 16px;
+    padding: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.results-nav-inner {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding-bottom: 4px;
+}
+
+.results-nav-inner::-webkit-scrollbar {
+    height: 6px;
+}
+
+.results-nav-inner::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.results-nav-inner::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 10px;
+}
+
+.results-nav-inner::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+.nav-btn {
+    padding: 10px 20px;
+    border: 2px solid #e9ecef;
+    background: white;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    color: #7f8c8d;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.nav-btn:hover {
+    background: #f8f9fa;
+    border-color: #667eea;
+    color: #667eea;
+}
+
+.nav-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+}
+
+/* Tab Section */
+.tab-section {
+    display: none;
+}
+
+.tab-section.active {
+    display: block;
 }

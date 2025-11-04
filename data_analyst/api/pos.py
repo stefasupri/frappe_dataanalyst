@@ -1316,3 +1316,4 @@ def get_sales_invoice_dashboard(company=None, customer_group=None, territory=Non
             'avg_invoice_value': round(summary.get('avg_invoice_value', 0), 2)
         }
     }
+  
