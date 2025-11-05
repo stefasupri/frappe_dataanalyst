@@ -3,24 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POS Predictions Dashboard</title>
-    <link rel="stylesheet" href="pos-predictions.css">
+    <title>Sales Invoice Predictions Dashboard</title>
+    <link rel="stylesheet" href="sales-predictions.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>POS Predictions Dashboard</h1>
-            <p>Analisis dan prediksi penjualan berdasarkan data historis POS Invoice</p>
+            <h1>Sales Invoice Predictions Dashboard</h1>
+            <p>Analisis dan prediksi penjualan berdasarkan data historis Sales Invoice</p>
         </div>
 
         <div class="card form-card">
             <form id="prediction-form">
                 <div class="form-grid">
-                    
                     <div class="form-group">
                         <label for="company">Company <span class="required">*</span></label>
-                        
                         <div class="custom-select-container">
                             <div class="custom-select-btn" id="company-select-btn">
                                 <span id="company-select-label">Select company...</span>
@@ -28,28 +26,24 @@
                             </div>
                             <div class="custom-select-dropdown" id="company-select-dropdown">
                                 <input type="text" class="select-search-input" id="company-search" placeholder="Search company...">
-                                <div class="select-options-list" id="company-options-list">
-                                    </div>
+                                <div class="select-options-list" id="company-options-list"></div>
                             </div>
                         </div>
                         <input type="hidden" id="company" name="company" required>
                     </div>
 
                     <div class="form-group">
-                        <label for="pos_profiles">POS Profiles</label>
-                        
-                        <div class="custom-select-container">
-                            <div class="custom-select-btn disabled" id="pos-select-btn">
-                                <span id="pos-select-label">Select profiles...</span>
-                                <span class="chevron">▼</span>
-                            </div>
-                            <div class="custom-select-dropdown" id="pos-select-dropdown">
-                                </div>
-                        </div>
-                        
-                        <input type="hidden" id="pos_profiles" name="pos_profiles">
-                        
-                        <small id="pos-profiles-note">Pilih Company terlebih dahulu</small>
+                        <label for="customer_group">Customer Group</label>
+                        <select id="customer_group" name="customer_group">
+                            <option value="">All Customer Groups</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="territory">Territory</label>
+                        <select id="territory" name="territory">
+                            <option value="">All Territories</option>
+                        </select>
                     </div>
 
                     <div class="form-group">
@@ -69,7 +63,7 @@
 
                     <div class="form-group">
                         <button type="submit" class="btn btn-primary" id="submit-btn">
-                            <span class="btn-text">Refresh Data</span>
+                            <span class="btn-text">Generate Predictions</span>
                             <span class="btn-loader" style="display: none;">Loading...</span>
                         </button>
                     </div>
@@ -89,6 +83,6 @@
         <div id="results-container"></div>
     </div>
 
-    <script src="pos-predictions.js"></script>
+    <script src="Sales/sales-predictions.js"></script>
 </body>
 </html>
