@@ -1,70 +1,239 @@
-// Sales Invoice Predictions Dashboard
+// Sales Invoice Predictions Dashboard - Rebuilt
 (function() {
     'use strict';
 
+    // ==================== GLOBAL VARIABLES ====================
     let predictions = null;
     let chartInstances = {};
     let allCompanies = [];
 
+    // ==================== INITIALIZATION ====================
     document.addEventListener('DOMContentLoaded', function() {
-        initDashboard();
+        console.log('Sales Dashboard initialized');
+        initializeApp();
     });
 
-    function initDashboard() {
-        initFormListeners();
-        initCompanySelect();
-        fetchCompanyList();
-        fetchCustomerGroups();
-        fetchTerritories();
+    function initializeApp() {
+        setupCompanyDropdown();
+        setupFormSubmit();
+        loadCompanyList();
+        loadCustomerGroups();
+        loadTerritories();
     }
 
-    function initFormListeners() {
-        document.getElementById('company').addEventListener('change', () => {
-            clearResults();
-            hideError();
+    // ==================== COMPANY DROPDOWN ====================
+    function setupCompanyDropdown() {
+        const btn = document.getElementById('company-select-btn');
+        const dropdown = document.getElementById('company-select-dropdown');
+        const searchInput = document.getElementById('company-search');
+        const optionsList = document.getElementById('company-options-list');
+        const hiddenInput = document.getElementById('company');
+        const label = document.getElementById('company-select-label');
+
+        if (!btn || !dropdown) {
+            console.error('Company dropdown elements not found');
+            return;
+        }
+
+        // Toggle dropdown
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const isOpen = dropdown.style.display === 'flex';
+            dropdown.style.display = isOpen ? 'none' : 'flex';
+            if (!isOpen) {
+                searchInput.focus();
+            }
         });
 
+        // Search functionality
+        searchInput.addEventListener('input', function(e) {
+            const searchTerm = e.target.value.toLowerCase();
+            const filtered = allCompanies.filter(company => 
+                company.name.toLowerCase().includes(searchTerm)
+            );
+            renderCompanyOptions(filtered);
+        });
+
+        // Handle option selection
+        optionsList.addEventListener('click', function(e) {
+            const item = e.target.closest('.select-option-item');
+            if (item) {
+                const value = item.dataset.value;
+                hiddenInput.value = value;
+                label.textContent = value;
+                dropdown.style.display = 'none';
+                searchInput.value = '';
+                renderCompanyOptions(allCompanies);
+                
+                // Trigger change event
+                onCompanyChange(value);
+            }
+        });
+
+        // Close on outside click
+        document.addEventListener('click', function(e) {
+            if (!btn.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+    }
+
+    function loadCompanyList() {
+        fetch('/api/resource/Company', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': getCookie('csrf_token')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.data && Array.isArray(data.data)) {
+                allCompanies = data.data;
+                renderCompanyOptions(allCompanies);
+                console.log('Companies loaded:', allCompanies.length);
+            }
+        })
+        .catch(error => {
+            console.error('Error loading companies:', error);
+            showError('Failed to load company list');
+        });
+    }
+
+    function renderCompanyOptions(companies) {
+        const optionsList = document.getElementById('company-options-list');
+        const currentValue = document.getElementById('company').value;
+        
+        if (!optionsList) return;
+        
+        optionsList.innerHTML = '';
+
+        if (companies.length === 0) {
+            optionsList.innerHTML = '<div style="padding: 10px; color: #7f8c8d;">No companies found</div>';
+            return;
+        }
+
+        companies.forEach(company => {
+            const item = document.createElement('div');
+            item.className = 'select-option-item';
+            item.dataset.value = company.name;
+            item.textContent = company.name;
+            
+            if (company.name === currentValue) {
+                item.classList.add('selected');
+            }
+            
+            optionsList.appendChild(item);
+        });
+    }
+
+    function onCompanyChange(companyName) {
+        console.log('Company changed to:', companyName);
+        clearResults();
+        hideError();
+    }
+
+    // ==================== CUSTOMER GROUPS & TERRITORIES ====================
+    function loadCustomerGroups() {
+        fetch('/api/resource/Customer Group?fields=["name"]&limit_page_length=999', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': getCookie('csrf_token')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('customer_group');
+            if (data.data && select) {
+                data.data.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.name;
+                    option.textContent = group.name;
+                    select.appendChild(option);
+                });
+                console.log('Customer groups loaded:', data.data.length);
+            }
+        })
+        .catch(error => console.error('Error loading customer groups:', error));
+    }
+
+    function loadTerritories() {
+        fetch('/api/resource/Territory?fields=["name"]&limit_page_length=999', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': getCookie('csrf_token')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById('territory');
+            if (data.data && select) {
+                data.data.forEach(territory => {
+                    const option = document.createElement('option');
+                    option.value = territory.name;
+                    option.textContent = territory.name;
+                    select.appendChild(option);
+                });
+                console.log('Territories loaded:', data.data.length);
+            }
+        })
+        .catch(error => console.error('Error loading territories:', error));
+    }
+
+    // ==================== FORM SUBMIT ====================
+    function setupFormSubmit() {
         const form = document.getElementById('prediction-form');
-        if(form) {
-            form.addEventListener('submit', (e) => {
-                e.preventDefault();
-                triggerFetch();
-            });
-        }
-    }
-
-    function triggerFetch() {
-        const company = document.getElementById('company').value;
-        const customer_group = document.getElementById('customer_group').value;
-        const territory = document.getElementById('territory').value;
-        const date_from = document.getElementById('date_from').value;
-        const date_to = document.getElementById('date_to').value;
-        const prediction_days = document.getElementById('prediction_days').value;
-
-        if (!company) {
-            showError('Please select a Company first');
-            return; 
+        
+        if (!form) {
+            console.error('Form not found');
+            return;
         }
 
-        fetchPredictions({
-            company: company,
-            customer_group: customer_group,
-            territory: territory,
-            date_from: date_from,
-            date_to: date_to,
-            prediction_days: prediction_days || 30
+        form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            handleFormSubmit();
         });
     }
 
+    function handleFormSubmit() {
+        const company = document.getElementById('company').value;
+        const customerGroup = document.getElementById('customer_group').value;
+        const territory = document.getElementById('territory').value;
+        const dateFrom = document.getElementById('date_from').value;
+        const dateTo = document.getElementById('date_to').value;
+        const predictionDays = document.getElementById('prediction_days').value || 30;
+
+        // Validation
+        if (!company) {
+            showError('Please select a Company');
+            return;
+        }
+
+        // Build params
+        const params = {
+            company: company,
+            customer_group: customerGroup,
+            territory: territory,
+            date_from: dateFrom,
+            date_to: dateTo,
+            prediction_days: predictionDays
+        };
+
+        fetchPredictions(params);
+    }
+
+    // ==================== API CALL ====================
     function fetchPredictions(params) {
         showLoading(true);
         hideError();
-        clearResults(); 
+        clearResults();
 
         const url = '/api/method/data_analyst.api.pos.get_sales_invoice_predictions';
         const queryParams = new URLSearchParams();
-        queryParams.append('company', params.company);
         
+        queryParams.append('company', params.company);
         if (params.customer_group) queryParams.append('customer_group', params.customer_group);
         if (params.territory) queryParams.append('territory', params.territory);
         if (params.date_from) queryParams.append('date_from', params.date_from);
@@ -73,12 +242,15 @@
 
         fetch(`${url}?${queryParams.toString()}`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': getCookie('csrf_token') }
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Frappe-CSRF-Token': getCookie('csrf_token')
+            }
         })
         .then(response => {
             if (!response.ok) {
-                return response.json().then(err => { 
-                    throw new Error(err.message || 'Network response was not ok');
+                return response.json().then(err => {
+                    throw new Error(err.message || 'API request failed');
                 });
             }
             return response.json();
@@ -95,199 +267,138 @@
         .catch(error => {
             showLoading(false);
             showError('Failed to fetch predictions: ' + error.message);
-            console.error('Error:', error);
+            console.error('Fetch error:', error);
         });
     }
 
-    // --- COMPANY SELECT ---
-    function initCompanySelect() {
-        const btn = document.getElementById('company-select-btn');
-        const dropdown = document.getElementById('company-select-dropdown');
-        const hiddenInput = document.getElementById('company');
-        const label = document.getElementById('company-select-label');
-        const searchInput = document.getElementById('company-search');
-        const optionsList = document.getElementById('company-options-list');
-
-        btn.addEventListener('click', () => {
-            const isVisible = dropdown.style.display === 'flex';
-            dropdown.style.display = isVisible ? 'none' : 'flex';
-            if (!isVisible) searchInput.focus();
-        });
-
-        searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            const filtered = allCompanies.filter(company => 
-                company.name.toLowerCase().includes(searchTerm)
-            );
-            populateCompanyDropdown(filtered);
-        });
-
-        optionsList.addEventListener('click', (e) => {
-            const item = e.target.closest('.select-option-item');
-            if (item) {
-                const value = item.dataset.value;
-                hiddenInput.value = value;
-                label.textContent = value;
-                dropdown.style.display = 'none';
-                searchInput.value = '';
-                populateCompanyDropdown(allCompanies);
-                hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-        });
-        
-        document.addEventListener('click', (e) => {
-            if (btn && dropdown && !btn.contains(e.target) && !dropdown.contains(e.target)) {
-                dropdown.style.display = 'none';
-            }
-        });
-    }
-    
-    function fetchCompanyList() {
-        fetch('/api/resource/Company', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': getCookie('csrf_token') }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.data) { 
-                allCompanies = data.data;
-                populateCompanyDropdown(allCompanies);
-            }
-        })
-        .catch(error => console.error('Error fetching company list:', error));
-    }
-
-    function populateCompanyDropdown(companies) {
-        const optionsList = document.getElementById('company-options-list');
-        const currentValue = document.getElementById('company').value;
-        if (!optionsList) return;
-        optionsList.innerHTML = '';
-
-        if (companies.length === 0) {
-            optionsList.innerHTML = '<span style="padding: 10px; display: block; color: #7f8c8d;">No matching company</span>';
-            return;
-        }
-
-        companies.forEach(company => {
-            const item = document.createElement('div');
-            item.className = 'select-option-item';
-            item.dataset.value = company.name;
-            item.textContent = company.name;
-            if (company.name === currentValue) item.classList.add('selected');
-            optionsList.appendChild(item);
-        });
-    }
-
-    // --- FETCH CUSTOMER GROUPS ---
-    function fetchCustomerGroups() {
-        fetch('/api/resource/Customer Group?fields=["name"]&limit_page_length=999', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': getCookie('csrf_token') }
-        })
-        .then(response => response.json())
-        .then(data => {
-            const select = document.getElementById('customer_group');
-            if (data.data) {
-                data.data.forEach(group => {
-                    const option = document.createElement('option');
-                    option.value = group.name;
-                    option.textContent = group.name;
-                    select.appendChild(option);
-                });
-            }
-        })
-        .catch(error => console.error('Error fetching customer groups:', error));
-    }
-
-    // --- FETCH TERRITORIES ---
-    function fetchTerritories() {
-        fetch('/api/resource/Territory?fields=["name"]&limit_page_length=999', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json', 'X-Frappe-CSRF-Token': getCookie('csrf_token') }
-        })
-        .then(response => response.json())
-        .then(data => {
-            const select = document.getElementById('territory');
-            if (data.data) {
-                data.data.forEach(territory => {
-                    const option = document.createElement('option');
-                    option.value = territory.name;
-                    option.textContent = territory.name;
-                    select.appendChild(option);
-                });
-            }
-        })
-        .catch(error => console.error('Error fetching territories:', error));
-    }
-
-    function clearResults() {
-        document.getElementById('results-container').innerHTML = '';
-        document.getElementById('results-nav').style.display = 'none';
-    }
-
-    // --- RENDER RESULTS ---
+    // ==================== RENDER RESULTS ====================
     function renderResults() {
         if (!predictions) return;
-        Object.keys(chartInstances).forEach(key => { if (chartInstances[key]) chartInstances[key].destroy(); });
+
+        // Destroy existing charts
+        Object.keys(chartInstances).forEach(key => {
+            if (chartInstances[key]) {
+                chartInstances[key].destroy();
+            }
+        });
         chartInstances = {};
-        
+
         let html = '';
         html += renderInfoHeader();
         
-        if (predictions.sales_prediction?.status === 'success') html += `<div id="sales-section" class="tab-section">${renderSalesPrediction()}</div>`;
-        if (predictions.product_demand_prediction?.status === 'success') html += `<div id="products-section" class="tab-section">${renderProductDemand()}</div>`;
-        if (predictions.profit_prediction?.status === 'success') html += `<div id="profit-section" class="tab-section">${renderProfitPrediction()}</div>`;
-        if (predictions.customer_analysis?.status === 'success') html += `<div id="customers-section" class="tab-section">${renderCustomerAnalysis()}</div>`;
-        if (predictions.bestseller_prediction?.status === 'success') html += `<div id="bestsellers-section" class="tab-section">${renderBestsellerPrediction()}</div>`;
-        if (predictions.payment_prediction?.status === 'success') html += `<div id="payment-section" class="tab-section">${renderPaymentPrediction()}</div>`;
+        if (predictions.sales_prediction?.status === 'success') {
+            html += `<div id="sales-section" class="tab-section">${renderSalesPrediction()}</div>`;
+        }
+        if (predictions.product_demand_prediction?.status === 'success') {
+            html += `<div id="products-section" class="tab-section">${renderProductDemand()}</div>`;
+        }
+        if (predictions.profit_prediction?.status === 'success') {
+            html += `<div id="profit-section" class="tab-section">${renderProfitPrediction()}</div>`;
+        }
+        if (predictions.customer_analysis?.status === 'success') {
+            html += `<div id="customers-section" class="tab-section">${renderCustomerAnalysis()}</div>`;
+        }
+        if (predictions.bestseller_prediction?.status === 'success') {
+            html += `<div id="bestsellers-section" class="tab-section">${renderBestsellerPrediction()}</div>`;
+        }
+        if (predictions.payment_prediction?.status === 'success') {
+            html += `<div id="payment-section" class="tab-section">${renderPaymentPrediction()}</div>`;
+        }
         
         document.getElementById('results-container').innerHTML = html;
         document.getElementById('results-nav').innerHTML = renderResultsNav();
         document.getElementById('results-nav').style.display = 'block';
         
-        bindResultsNav();
+        setupNavigation();
         
+        // Show first tab
         const firstTab = document.querySelector('.nav-btn');
         if (firstTab) {
             showTab(firstTab.dataset.target);
             firstTab.classList.add('active');
         }
 
+        // Render charts after DOM update
         setTimeout(() => renderCharts(), 100);
     }
-    
+
+    function renderInfoHeader() {
+        const p = predictions;
+        let filters = [];
+        if (p.filters.customer_group) filters.push(`Customer Group: ${p.filters.customer_group}`);
+        if (p.filters.territory) filters.push(`Territory: ${p.filters.territory}`);
+        
+        return `
+            <div class="info-header">
+                <h3>Prediction Summary</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>Company</label>
+                        <value>${p.company}</value>
+                    </div>
+                    <div class="info-item">
+                        <label>Filters</label>
+                        <value>${filters.length > 0 ? filters.join(', ') : 'None'}</value>
+                    </div>
+                    <div class="info-item">
+                        <label>Date Range</label>
+                        <value>${p.date_range.from} ~ ${p.date_range.to}</value>
+                    </div>
+                    <div class="info-item">
+                        <label>Prediction Period</label>
+                        <value>${p.prediction_period}</value>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     function renderResultsNav() {
         let navHtml = '<div class="results-nav-inner">';
-        if (predictions.sales_prediction?.status === 'success') navHtml += `<button class="nav-btn" data-target="sales-section">Sales</button>`;
-        if (predictions.product_demand_prediction?.status === 'success') navHtml += `<button class="nav-btn" data-target="products-section">Product</button>`;
-        if (predictions.profit_prediction?.status === 'success') navHtml += `<button class="nav-btn" data-target="profit-section">Profit</button>`;
-        if (predictions.customer_analysis?.status === 'success') navHtml += `<button class="nav-btn" data-target="customers-section">Customer</button>`;
-        if (predictions.bestseller_prediction?.status === 'success') navHtml += `<button class="nav-btn" data-target="bestsellers-section">Bestseller</button>`;
-        if (predictions.payment_prediction?.status === 'success') navHtml += `<button class="nav-btn" data-target="payment-section">Payment</button>`;
+        if (predictions.sales_prediction?.status === 'success') {
+            navHtml += `<button class="nav-btn" data-target="sales-section">Sales</button>`;
+        }
+        if (predictions.product_demand_prediction?.status === 'success') {
+            navHtml += `<button class="nav-btn" data-target="products-section">Product</button>`;
+        }
+        if (predictions.profit_prediction?.status === 'success') {
+            navHtml += `<button class="nav-btn" data-target="profit-section">Profit</button>`;
+        }
+        if (predictions.customer_analysis?.status === 'success') {
+            navHtml += `<button class="nav-btn" data-target="customers-section">Customer</button>`;
+        }
+        if (predictions.bestseller_prediction?.status === 'success') {
+            navHtml += `<button class="nav-btn" data-target="bestsellers-section">Bestseller</button>`;
+        }
+        if (predictions.payment_prediction?.status === 'success') {
+            navHtml += `<button class="nav-btn" data-target="payment-section">Payment</button>`;
+        }
         navHtml += '</div>';
         return navHtml;
     }
-    
-    function bindResultsNav() {
+
+    function setupNavigation() {
         const buttons = document.querySelectorAll('.nav-btn');
         buttons.forEach(btn => {
-            btn.addEventListener('click', () => {
-                const target = btn.getAttribute('data-target');
+            btn.addEventListener('click', function() {
+                const target = this.getAttribute('data-target');
                 showTab(target);
                 buttons.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
+                this.classList.add('active');
             });
         });
     }
-    
+
     function showTab(id) {
         const sections = document.querySelectorAll('.tab-section');
         sections.forEach(sec => sec.classList.remove('active'));
         const targetSection = document.getElementById(id);
-        if (targetSection) targetSection.classList.add('active');
+        if (targetSection) {
+            targetSection.classList.add('active');
+        }
     }
 
-    // --- RENDER CHARTS ---
+    // ==================== RENDER CHARTS ====================
     function renderCharts() {
         if (predictions.sales_prediction?.status === 'success') renderSalesChart();
         if (predictions.product_demand_prediction?.status === 'success') renderProductDemandChart();
@@ -296,13 +407,16 @@
         if (predictions.bestseller_prediction?.status === 'success') renderBestsellerChart();
         if (predictions.payment_prediction?.status === 'success') renderPaymentChart();
     }
-    
+
     function renderSalesChart() {
         const canvas = document.getElementById('salesChart');
         if (!canvas) return;
+        
         const sp = predictions.sales_prediction;
         const predictionDays = parseInt(predictions.prediction_period.split(' ')[0]);
-        const labels = [], actualData = [], predictedData = [];
+        const labels = [];
+        const actualData = [];
+        const predictedData = [];
         
         for (let i = -30; i < predictionDays; i++) {
             if (i < 0) {
@@ -368,10 +482,11 @@
             }
         });
     }
-    
+
     function renderProductDemandChart() {
         const canvas = document.getElementById('productDemandChart');
         if (!canvas) return;
+        
         const pd = predictions.product_demand_prediction;
         const topProducts = pd.top_products.slice(0, 10);
         const labels = topProducts.map(p => p.item_name.length > 20 ? p.item_name.substring(0, 20) + '...' : p.item_name);
@@ -407,10 +522,11 @@
             }
         });
     }
-    
+
     function renderProfitChart() {
         const canvas = document.getElementById('profitChart');
         if (!canvas) return;
+        
         const pp = predictions.profit_prediction;
         
         chartInstances.profit = new Chart(canvas, {
@@ -440,10 +556,11 @@
             }
         });
     }
-    
+
     function renderCustomerChart() {
         const canvas = document.getElementById('customerChart');
         if (!canvas) return;
+        
         const cp = predictions.customer_analysis;
         
         chartInstances.customer = new Chart(canvas, {
@@ -482,10 +599,11 @@
             }
         });
     }
-    
+
     function renderBestsellerChart() {
         const canvas = document.getElementById('bestsellerChart');
         if (!canvas) return;
+        
         const bp = predictions.bestseller_prediction;
         const topItems = bp.top_bestsellers.slice(0, 10);
         const labels = topItems.map(item => item.item_name.length > 15 ? item.item_name.substring(0, 15) + '...' : item.item_name);
@@ -512,10 +630,11 @@
             }
         });
     }
-    
+
     function renderPaymentChart() {
         const canvas = document.getElementById('paymentChart');
         if (!canvas) return;
+        
         const pp = predictions.payment_prediction;
         
         chartInstances.payment = new Chart(canvas, {
@@ -564,26 +683,7 @@
         });
     }
 
-    // --- RENDER CONTENT ---
-    function renderInfoHeader() {
-        const p = predictions;
-        let filters = [];
-        if (p.filters.customer_group) filters.push(`Customer Group: ${p.filters.customer_group}`);
-        if (p.filters.territory) filters.push(`Territory: ${p.filters.territory}`);
-        
-        return `
-            <div class="info-header">
-                <h3>Prediction Summary</h3>
-                <div class="info-grid">
-                    <div class="info-item"><label>Company</label><value>${p.company}</value></div>
-                    <div class="info-item"><label>Filters</label><value>${filters.length > 0 ? filters.join(', ') : 'None'}</value></div>
-                    <div class="info-item"><label>Date Range</label><value>${p.date_range.from} ~ ${p.date_range.to}</value></div>
-                    <div class="info-item"><label>Prediction Period</label><value>${p.prediction_period}</value></div>
-                </div>
-            </div>
-        `;
-    }
-    
+    // ==================== RENDER CONTENT ====================
     function renderSalesPrediction() {
         const sp = predictions.sales_prediction;
         return `
@@ -637,7 +737,7 @@
             </div>
         `;
     }
-    
+
     function renderProductDemand() {
         const pd = predictions.product_demand_prediction;
         let rows = '';
@@ -678,7 +778,7 @@
             </div>
         `;
     }
-    
+
     function renderProfitPrediction() {
         const pp = predictions.profit_prediction;
         return `
@@ -717,12 +817,13 @@
             </div>
         `;
     }
-    
+
     function renderCustomerAnalysis() {
         const cp = predictions.customer_analysis;
         let customerRows = '';
         cp.top_customers.forEach(cust => {
-            const badgeClass = cust.customer_type === 'loyal' ? 'badge-success' : cust.customer_type === 'repeat' ? 'badge-info' : 'badge-warning';
+            const badgeClass = cust.customer_type === 'loyal' ? 'badge-success' : 
+                              cust.customer_type === 'repeat' ? 'badge-info' : 'badge-warning';
             customerRows += `<tr>
                 <td>${cust.customer_name}</td>
                 <td style="text-align: right;">${cust.invoice_count}x</td>
@@ -778,7 +879,7 @@
             </div>
         `;
     }
-    
+
     function renderBestsellerPrediction() {
         const bp = predictions.bestseller_prediction;
         let bestsellerHtml = '';
@@ -814,7 +915,7 @@
             </div>
         `;
     }
-    
+
     function renderPaymentPrediction() {
         const pp = predictions.payment_prediction;
         let agingRows = '';
@@ -871,42 +972,56 @@
         `;
     }
 
-    // --- HELPER FUNCTIONS ---
+    // ==================== UTILITY FUNCTIONS ====================
     function showLoading(show) {
         const loading = document.getElementById('loading');
         const btn = document.getElementById('submit-btn');
-        const btnText = btn.querySelector('.btn-text');
-        const btnLoader = btn.querySelector('.btn-loader');
+        const btnText = btn ? btn.querySelector('.btn-text') : null;
+        const btnLoader = btn ? btn.querySelector('.btn-loader') : null;
         
         if (show) {
-            loading.style.display = 'block';
-            if(btn) {
+            if (loading) loading.style.display = 'block';
+            if (btn) {
                 btn.disabled = true;
-                if(btnText) btnText.style.display = 'none';
-                if(btnLoader) btnLoader.style.display = 'inline';
+                if (btnText) btnText.style.display = 'none';
+                if (btnLoader) btnLoader.style.display = 'inline';
             }
         } else {
-            loading.style.display = 'none';
-            if(btn) {
+            if (loading) loading.style.display = 'none';
+            if (btn) {
                 btn.disabled = false;
-                if(btnText) btnText.style.display = 'inline';
-                if(btnLoader) btnLoader.style.display = 'none';
+                if (btnText) btnText.style.display = 'inline';
+                if (btnLoader) btnLoader.style.display = 'none';
             }
         }
     }
 
     function showError(message) {
         const errorBox = document.getElementById('error-message');
-        errorBox.textContent = message;
-        errorBox.style.display = 'block';
+        if (errorBox) {
+            errorBox.textContent = message;
+            errorBox.style.display = 'block';
+        }
+        console.error('Error:', message);
     }
 
     function hideError() {
-        document.getElementById('error-message').style.display = 'none';
+        const errorBox = document.getElementById('error-message');
+        if (errorBox) {
+            errorBox.style.display = 'none';
+        }
+    }
+
+    function clearResults() {
+        const resultsContainer = document.getElementById('results-container');
+        const resultsNav = document.getElementById('results-nav');
+        
+        if (resultsContainer) resultsContainer.innerHTML = '';
+        if (resultsNav) resultsNav.style.display = 'none';
     }
 
     function formatCurrency(value) {
-        if (!value) return 'Rp 0';
+        if (!value && value !== 0) return 'Rp 0';
         return 'Rp ' + parseFloat(value).toLocaleString('id-ID', {
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
@@ -914,7 +1029,7 @@
     }
 
     function formatNumber(value) {
-        if (!value) return '0';
+        if (!value && value !== 0) return '0';
         return parseFloat(value).toLocaleString('id-ID', {
             minimumFractionDigits: 0,
             maximumFractionDigits: 2
