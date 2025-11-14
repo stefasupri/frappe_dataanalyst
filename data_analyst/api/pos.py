@@ -1026,24 +1026,51 @@ def predict_profit_si(filters, date_from, date_to, prediction_days):
             'message': 'Tidak ada data profit'
         }
     
-    # Hitung cost menggunakan valuation rate
-    items_cost = frappe.db.sql("""
+    # Hitung total item dan item dengan valuation rate
+    item_stats = frappe.db.sql("""
         SELECT 
-            DATE(si.posting_date) as date,
-            SUM(sii.qty * sii.rate) as item_amount,
-            SUM(
-                sii.qty * COALESCE(
-                    i.valuation_rate,
-                    i.standard_rate * 0.65,
-                    sii.rate * 0.65
-                )
-            ) as estimated_cost
+            COUNT(DISTINCT sii.item_code) as total_items,
+            COUNT(DISTINCT CASE 
+                WHEN i.valuation_rate IS NOT NULL AND i.valuation_rate > 0 
+                THEN sii.item_code 
+            END) as items_with_valuation
         FROM `tabSales Invoice Item` sii
         INNER JOIN `tabSales Invoice` si ON sii.parent = si.name
         LEFT JOIN `tabItem` i ON sii.item_code = i.name
         WHERE si.company = %(company)s 
             AND si.docstatus = %(docstatus)s
             AND si.posting_date BETWEEN %(date_from)s AND %(date_to)s
+            {customer_group_filter}
+            {territory_filter}
+    """.format(
+        customer_group_filter="AND si.customer_group = %(customer_group)s" if filters.get('customer_group') else "",
+        territory_filter="AND si.territory = %(territory)s" if filters.get('territory') else ""
+    ), {
+        'company': filters['company'],
+        'docstatus': filters['docstatus'],
+        'date_from': date_from,
+        'date_to': date_to,
+        'customer_group': filters.get('customer_group'),
+        'territory': filters.get('territory')
+    }, as_dict=1)
+    
+    total_items = item_stats[0]['total_items'] if item_stats else 0
+    items_with_valuation = item_stats[0]['items_with_valuation'] if item_stats else 0
+    
+    # Hitung cost menggunakan valuation rate saja
+    items_cost = frappe.db.sql("""
+        SELECT 
+            DATE(si.posting_date) as date,
+            SUM(sii.qty * sii.rate) as item_amount,
+            SUM(sii.qty * i.valuation_rate) as estimated_cost
+        FROM `tabSales Invoice Item` sii
+        INNER JOIN `tabSales Invoice` si ON sii.parent = si.name
+        INNER JOIN `tabItem` i ON sii.item_code = i.name
+        WHERE si.company = %(company)s 
+            AND si.docstatus = %(docstatus)s
+            AND si.posting_date BETWEEN %(date_from)s AND %(date_to)s
+            AND i.valuation_rate IS NOT NULL
+            AND i.valuation_rate > 0
             {customer_group_filter}
             {territory_filter}
         GROUP BY DATE(si.posting_date)
@@ -1068,8 +1095,12 @@ def predict_profit_si(filters, date_from, date_to, prediction_days):
     daily_profits = []
     
     for day in profit_data:
+        # Skip hari yang tidak punya data cost
+        if day['date'] not in cost_dict:
+            continue
+            
         revenue = day['revenue']
-        cost = cost_dict.get(day['date'], revenue * 0.65)  # Default 35% margin
+        cost = cost_dict[day['date']]
         profit = revenue - cost
         
         daily_profits.append(profit)
@@ -1078,14 +1109,20 @@ def predict_profit_si(filters, date_from, date_to, prediction_days):
         total_taxes += day['taxes']
         total_discount += day['discount']
     
+    if not daily_profits:
+        return {
+            'status': 'no_data',
+            'message': 'Tidak ada data valuation rate yang valid'
+        }
+    
     # Hitung statistik
-    avg_daily_profit = statistics.mean(daily_profits) if daily_profits else 0
+    avg_daily_profit = statistics.mean(daily_profits)
     total_profit = sum(daily_profits)
     profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
     
     # Prediksi
     predicted_total_profit = avg_daily_profit * prediction_days
-    predicted_revenue = (total_revenue / len(profit_data)) * prediction_days if profit_data else 0
+    predicted_revenue = (total_revenue / len(daily_profits)) * prediction_days
     predicted_cost = predicted_revenue - predicted_total_profit
     
     return {
@@ -1101,7 +1138,9 @@ def predict_profit_si(filters, date_from, date_to, prediction_days):
         'predicted_total_cost': round(predicted_cost, 2),
         'predicted_total_profit': round(predicted_total_profit, 2),
         'predicted_profit_margin': round(profit_margin, 2),
-        'note': 'Cost dihitung berdasarkan valuation rate item, jika tidak ada menggunakan estimasi 65% dari harga jual'
+        'total_items': total_items,
+        'items_with_valuation': items_with_valuation,
+        'note': f'Prediksi menggunakan metode rata-rata historis. {items_with_valuation} dari {total_items} item memiliki valuation rate.'
     }
 
 
@@ -1459,336 +1498,3 @@ def get_sales_invoice_dashboard(company=None, customer_group=None, territory=Non
             'avg_invoice_value': round(summary.get('avg_invoice_value', 0), 2)
         }
     }
-
-# Profit Prediction API - Fixed Version with Multiple Cost Fallbacks
-import statistics
-import frappe
-
-@frappe.whitelist()
-def predict_profit_v2(company, pos_profiles, date_from, date_to, prediction_days):
-    """
-    Prediksi Keuntungan dengan Fallback Cost System
-    
-    Cost Priority:
-    1. incoming_rate dari Stock Ledger Entry (paling akurat)
-    2. valuation_rate dari Item master
-    3. last_purchase_rate dari Item master
-    4. 0 (jika tidak ada data)
-    
-    Revenue: dari rate di POS Invoice Item
-    """
-    
-    # Convert params
-    if isinstance(pos_profiles, str):
-        import json
-        pos_profiles = json.loads(pos_profiles)
-    
-    prediction_days = int(prediction_days)
-    
-    # Query - Ambil cost dari SLE terakhir (bukan hanya dari POS Invoice)
-    invoice_items = frappe.db.sql("""
-        SELECT 
-            DATE(pi.posting_date) as date,
-            pii.item_code,
-            pii.item_name,
-            pii.qty,
-            pii.rate as selling_price,
-            pii.amount as revenue,
-            pii.base_rate as pos_base_rate,
-            pii.base_amount as pos_base_amount,
-            -- Ambil cost dari SLE terakhir sebelum/saat transaksi
-            COALESCE(
-                (
-                    SELECT sle.valuation_rate
-                    FROM `tabStock Ledger Entry` sle
-                    WHERE sle.item_code = pii.item_code
-                        AND sle.warehouse = pi.set_warehouse
-                        AND (sle.posting_date < pi.posting_date 
-                             OR (sle.posting_date = pi.posting_date AND sle.posting_time <= pi.posting_time))
-                    ORDER BY sle.posting_date DESC, sle.posting_time DESC, sle.creation DESC
-                    LIMIT 1
-                ),
-                item.valuation_rate,
-                item.last_purchase_rate,
-                0
-            ) as cost_per_unit,
-            -- Track sumber cost
-            item.valuation_rate as item_valuation_rate,
-            item.last_purchase_rate as item_last_purchase_rate,
-            CASE
-                WHEN (
-                    SELECT COUNT(*)
-                    FROM `tabStock Ledger Entry` sle
-                    WHERE sle.item_code = pii.item_code
-                        AND sle.warehouse = pi.set_warehouse
-                        AND (sle.posting_date < pi.posting_date 
-                             OR (sle.posting_date = pi.posting_date AND sle.posting_time <= pi.posting_time))
-                    LIMIT 1
-                ) > 0 THEN 'SLE Valuation Rate'
-                WHEN item.valuation_rate > 0 THEN 'Item Valuation'
-                WHEN item.last_purchase_rate > 0 THEN 'Last Purchase'
-                ELSE 'No Cost'
-            END as cost_source
-        FROM `tabPOS Invoice Item` pii
-        INNER JOIN `tabPOS Invoice` pi ON pii.parent = pi.name
-        LEFT JOIN `tabItem` item ON pii.item_code = item.name
-        WHERE pi.company = %s 
-            AND pi.pos_profile IN %s
-            AND pi.docstatus = 1
-            AND pi.posting_date BETWEEN %s AND %s
-        ORDER BY pi.posting_date, pii.idx
-    """, (company, pos_profiles, date_from, date_to), as_dict=1)
-    
-    if not invoice_items:
-        return {
-            'status': 'no_data',
-            'message': 'Tidak ada data transaksi dalam periode ini'
-        }
-    
-    # Aggregate per hari dan tracking cost source
-    daily_data = {}
-    cost_source_count = {'SLE Valuation Rate': 0, 'Item Valuation': 0, 'Last Purchase': 0, 'No Cost': 0}
-    items_no_cost = set()
-    
-    for item in invoice_items:
-        date = item['date']
-        
-        if date not in daily_data:
-            daily_data[date] = {
-                'revenue': 0,
-                'cost': 0,
-                'profit': 0,
-                'qty': 0
-            }
-        
-        # Calculate
-        revenue = item['revenue']
-        cost = item['qty'] * item['cost_per_unit']
-        profit = revenue - cost
-        
-        daily_data[date]['revenue'] += revenue
-        daily_data[date]['cost'] += cost
-        daily_data[date]['profit'] += profit
-        daily_data[date]['qty'] += item['qty']
-        
-        # Track cost source
-        cost_source_count[item['cost_source']] += 1
-        if item['cost_source'] == 'No Cost':
-            items_no_cost.add(item['item_code'])
-    
-    # Calculate totals
-    total_revenue = sum(d['revenue'] for d in daily_data.values())
-    total_cost = sum(d['cost'] for d in daily_data.values())
-    total_profit = sum(d['profit'] for d in daily_data.values())
-    daily_profits = [d['profit'] for d in daily_data.values()]
-    
-    # Statistics
-    num_days = len(daily_data)
-    avg_daily_profit = statistics.mean(daily_profits) if daily_profits else 0
-    avg_daily_revenue = total_revenue / num_days if num_days > 0 else 0
-    avg_daily_cost = total_cost / num_days if num_days > 0 else 0
-    profit_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
-    
-    # Predictions
-    predicted_revenue = avg_daily_revenue * prediction_days
-    predicted_cost = avg_daily_cost * prediction_days
-    predicted_profit = avg_daily_profit * prediction_days
-    predicted_margin = (predicted_profit / predicted_revenue * 100) if predicted_revenue > 0 else 0
-    
-    # Build result
-    result = {
-        'status': 'success',
-        'method': 'Naive Forecasting - Using Last SLE Valuation Rate',
-        
-        'historical': {
-            'revenue': round(total_revenue, 2),
-            'cost': round(total_cost, 2),
-            'profit': round(total_profit, 2),
-            'margin': round(profit_margin, 2),
-            'days': num_days
-        },
-        
-        'daily_average': {
-            'revenue': round(avg_daily_revenue, 2),
-            'cost': round(avg_daily_cost, 2),
-            'profit': round(avg_daily_profit, 2)
-        },
-        
-        'prediction': {
-            'days': prediction_days,
-            'revenue': round(predicted_revenue, 2),
-            'cost': round(predicted_cost, 2),
-            'profit': round(predicted_profit, 2),
-            'margin': round(predicted_margin, 2)
-        },
-        
-        'cost_data_quality': {
-            'sources': cost_source_count,
-            'total_transactions': sum(cost_source_count.values()),
-            'sle_percentage': round(cost_source_count['SLE Valuation Rate'] / sum(cost_source_count.values()) * 100, 1) if sum(cost_source_count.values()) > 0 else 0,
-            'items_without_cost': len(items_no_cost)
-        }
-    }
-    
-    # Warnings
-    warnings = []
-    
-    if cost_source_count['SLE Valuation Rate'] == 0:
-        warnings.append({
-            'type': 'warning',
-            'message': 'Tidak ada cost dari Stock Ledger Entry',
-            'impact': 'Semua cost menggunakan fallback (item valuation_rate/last_purchase_rate)',
-            'action': 'Pastikan ada stock movement (Purchase Receipt, Stock Entry) sebelum POS Invoice'
-        })
-    
-    if items_no_cost:
-        warnings.append({
-            'type': 'critical',
-            'message': f'{len(items_no_cost)} item TIDAK memiliki data cost',
-            'items': sorted(list(items_no_cost))[:10],
-            'impact': 'Profit untuk item ini = Revenue (cost dihitung 0)',
-            'action': 'Update valuation_rate atau last_purchase_rate di master Item'
-        })
-    
-    if cost_source_count['Last Purchase'] > 0:
-        warnings.append({
-            'type': 'warning',
-            'message': f'{cost_source_count["Last Purchase"]} transaksi menggunakan last_purchase_rate',
-            'impact': 'Cost mungkin tidak akurat jika harga sudah berubah'
-        })
-    
-    if warnings:
-        result['warnings'] = warnings
-    
-    # Daily breakdown
-    result['daily_breakdown'] = [
-        {
-            'date': str(date),
-            'revenue': round(d['revenue'], 2),
-            'cost': round(d['cost'], 2),
-            'profit': round(d['profit'], 2),
-            'margin': round((d['profit'] / d['revenue'] * 100) if d['revenue'] > 0 else 0, 1),
-            'qty': d['qty']
-        }
-        for date, d in sorted(daily_data.items())
-    ]
-    
-    return result
-
-
-@frappe.whitelist()
-def diagnose_cost_issues(company, pos_profiles, date_from, date_to):
-    """
-    Diagnostic tool untuk troubleshooting masalah cost
-    """
-    
-    if isinstance(pos_profiles, str):
-        import json
-        pos_profiles = json.loads(pos_profiles)
-    
-    if not isinstance(pos_profiles, (list, tuple)):
-        pos_profiles = [pos_profiles]
-    
-    # Cek item tanpa cost data
-    items = frappe.db.sql("""
-        SELECT 
-            pii.item_code,
-            item.item_name,
-            item.is_stock_item,
-            item.valuation_rate,
-            item.last_purchase_rate,
-            SUM(pii.qty) as total_qty,
-            SUM(pii.amount) as total_revenue,
-            COUNT(DISTINCT pi.name) as invoice_count,
-            COUNT(DISTINCT sle.name) as sle_count,
-            AVG(ABS(sle.incoming_rate)) as avg_incoming_rate
-        FROM `tabPOS Invoice Item` pii
-        INNER JOIN `tabPOS Invoice` pi ON pii.parent = pi.name
-        LEFT JOIN `tabItem` item ON pii.item_code = item.name
-        LEFT JOIN `tabStock Ledger Entry` sle ON (
-            sle.voucher_no = pi.name 
-            AND sle.voucher_type = 'POS Invoice'
-            AND sle.item_code = pii.item_code
-            AND sle.actual_qty < 0
-        )
-        WHERE pi.company = %s 
-            AND pi.pos_profile IN %s
-            AND pi.docstatus = 1
-            AND pi.posting_date BETWEEN %s AND %s
-        GROUP BY pii.item_code
-        ORDER BY total_revenue DESC
-    """, (company, pos_profiles, date_from, date_to), as_dict=1)
-    
-    # Categorize issues
-    issues = {
-        'no_sle': [],           # Tidak ada SLE
-        'non_stock': [],        # Bukan stock item
-        'no_valuation': [],     # Tidak ada valuation rate
-        'ok': []                # Semua data lengkap
-    }
-    
-    for item in items:
-        if item['sle_count'] == 0:
-            issues['no_sle'].append(item)
-        if item['is_stock_item'] == 0:
-            issues['non_stock'].append(item)
-        if (item['valuation_rate'] or 0) == 0 and (item['last_purchase_rate'] or 0) == 0:
-            issues['no_valuation'].append(item)
-        if item['sle_count'] > 0 and item['avg_incoming_rate'] > 0:
-            issues['ok'].append(item)
-    
-    # Company settings
-    company_doc = frappe.get_doc('Company', company)
-    perpetual_inventory = company_doc.enable_perpetual_inventory
-    
-    return {
-        'status': 'success',
-        'company_settings': {
-            'perpetual_inventory_enabled': perpetual_inventory,
-            'default_inventory_account': company_doc.stock_received_but_not_billed or 'Not Set'
-        },
-        'summary': {
-            'total_items': len(items),
-            'items_with_sle': len(issues['ok']),
-            'items_without_sle': len(issues['no_sle']),
-            'non_stock_items': len(issues['non_stock']),
-            'items_without_valuation': len(issues['no_valuation'])
-        },
-        'issues': issues,
-        'recommendations': get_recommendations(perpetual_inventory, issues)
-    }
-
-
-def get_recommendations(perpetual_inventory, issues):
-    """Generate actionable recommendations"""
-    recommendations = []
-    
-    if not perpetual_inventory:
-        recommendations.append({
-            'priority': 'HIGH',
-            'issue': 'Perpetual Inventory tidak aktif',
-            'action': 'Aktifkan di Company Settings > Enable Perpetual Inventory'
-        })
-    
-    if len(issues['no_sle']) > 0:
-        recommendations.append({
-            'priority': 'HIGH',
-            'issue': f'{len(issues["no_sle"])} item tidak memiliki Stock Ledger Entry',
-            'action': 'Cek: Warehouse di-set di POS Profile? Item adalah stocked item?'
-        })
-    
-    if len(issues['no_valuation']) > 0:
-        recommendations.append({
-            'priority': 'MEDIUM',
-            'issue': f'{len(issues["no_valuation"])} item tidak memiliki valuation rate',
-            'action': 'Update valuation_rate atau last_purchase_rate di master Item'
-        })
-    
-    if len(issues['non_stock']) > 0:
-        recommendations.append({
-            'priority': 'INFO',
-            'issue': f'{len(issues["non_stock"])} item bukan stock item',
-            'action': 'Non-stock item tidak membuat SLE, pastikan valuation_rate diisi manual'
-        })
-    
-    return recommendations
